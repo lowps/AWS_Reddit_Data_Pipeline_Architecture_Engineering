@@ -1,0 +1,120 @@
+#these are called TOP-LEVEL ELEMENTS ex: 'image', 'volumes', 'services', etc
+
+version: '3' #Specifies the version of the Docker Compose file format. Version 3 is widely used and supports most features.
+
+x-airflow-common: #Think of this as a VARIABLE; holding all the indented information within it; its properly termed "A named configuration block using YAML anchors and aliases."u can think of anchors as assigning a value to a variable, define an anchor via "&"
+  &airflow-common #anchorname. You know this is an anchor because its symbolized by "&". Other services can reference this config. using the alias 'airflow-common'; SERVICES below are referencing this to build its configuration based on whats stated in 'airflow-common' code block.
+  build: #build: build section, which defines how to create the Docker image for the service. The 'context' and 'Dockerfile' section are used to build the DOCKER IMAGE.
+    context: . #PATH #specifies current working directory relative to docker-compose.yml file #./Dockerfile
+    dockerfile: Dockerfile #PATH # specifies name of file #./Dockerfile
+  image: custom-airflow:2.7.1-python3.9 #NAME of the DOCKERIMAGE. Specifies the IMAGE in which container"d" (highlevel runtime) gives to runC (lowlevel runtime) which executes and turns into a CONTAINER.
+  env_file: #Loads enviornment variables from a file
+    - airflow.env #This is the file that contains ENVIORNMENT VARIABLES it wants the DOCKERIMAGE to have.
+  volumes: #The VOLUMES attribute define mount host paths or named volumes that are accessible by service containers. MAPS host directories to container directories
+    - ./config:/opt/airflow/config  #directory #the './' notation is used to specify a relative path from the directory where the docker-compose.yml file is located.
+    - ./dags:/opt/airflow/dags  #directory
+    - ./data:/opt/airflow/data  #directory
+    - ./etls:/opt/airflow/etls  #directory
+    - ./logs:/opt/airflow/logs  #directory
+    - ./pipelines:/opt/airflow/pipelines  #directory
+    - ./plugins:/opt/airflow/plugins  #directory
+    - ./tests:/opt/airflow/tests  #directory
+    - ./utils:/opt/airflow/utils  #directory
+   # - ./airflow.cfg:/opt/airflow/airflow.cfg #directory
+    - ./requirements.txt:/opt/airflow/requirements.txt  #directory
+  depends_on: #with the depends_on attribute you can control the order of service startup and shutdown. Specefies DEPENDENCIES between services. Specifies that 'postgres' and 'redis' are DEPENDENTS (priority berfore any other service because other services depends on these 2x to be started before others can work). Note, does not wait for the dependent services to be fully operational or ready. It only ensures that the dependent services are started. 
+    - postgres #short syntax (not Long Syntax which has more attributes specified)
+    - redis  #short syntax
+      #DEPENDS_ON: Doesnt gurantee that they'll be FULLY RUNNING/OPERATIONAL, but ENSURES its purpose, that they are 'started', performs the action of 'starting' them (kinda like turning them on)
+
+services: #Specifies DOCKERIMAGES(containers) and specific configurations, Enviornment Variables associated w/ that DOCKERIMAGE.
+  postgres: #Defines a service named 'postgres' with the specified IMAGE and ENVIRONMENT VARIABLES. POSTGRES is the database used to store all META DATA of AIRFLOW
+    image: postgres:12 #DOCKERIMAGE name
+    environment: #Defines ENVIRONMENT VARIABLES
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: airflow_reddit
+      POSTGRES_PORT: 5432 ## This is the SPECIFIES DEFAULT port inside the CONTAINER.thus no need ot update it to 5433 since I specify it under MAPPINGS
+    ports: #Ports section maps container ports to machine/host ports
+      - "5433:5432"  #<host_port>:<container_port>
+    deploy: #Optional,you can define runtime constraints to run the containers. DEPLOY, deployment strategy, section groups these constraints and allows the deployment strategy to adjust the resources to best match containers needs. 
+      resources: #resources configures physical resource constraints for container to run
+        limits: #LIMITS: Defines the maximum resources the container can use.
+          cpus: '0.25'
+          memory: 256M #byte value: b (bytes), kb (kilobytes), m (megabytes), gb (gigabytes)
+        reservations: #RESERVATIONS: Defines the minimum resources guaranteed for the container.
+          cpus: '0.1'
+          memory: 128M
+
+  redis: #Defines a service named 'redis' with its DOCKERIMAGE & PORT MAPPINGS
+    image: redis:latest #DOCKERIMAGE
+    ports:
+      - "6379:6379" #PORT MAPPINGS <host_port>:<container_port>
+    deploy:
+      resources:
+        limits: #LIMITS: Defines the maximum resources the container can use.
+          cpus: '0.25'
+          memory: 256M
+        reservations: #RESERVATIONS: Defines the minimum resources guaranteed for the container.
+          cpus: '0.1'
+          memory: 128M
+
+  airflow-init: # The initialization command for AIRFLOW, responsible for starting up the system processes, services, ensures that all necessary system components are initialized and ready for usage.
+    <<: *airflow-common
+    command: > #The command section overrides the default command defined in the Dockerfile. #COMMAND: specifies the command that is executed when a container starts. When I mention that the command "overrides the command," it means that it replaces or modifies the default command specified in the Docker image's Dockerfile.
+      bash -c "pip install -r /opt/airflow/requirements.txt && airflow db init && airflow db upgrade && airflow users create --username admin --firstname admin --lastname admin --role Admin --email airflow@airflow.com --password admin"
+    restart: "no" #prevents the container from restarting automatically.
+    deploy:
+      resources:
+        limits: #LIMITS: Defines the maximum resources the container can use.
+          cpus: '0.25'
+          memory: 256M
+        reservations: #RESERVATIONS: Defines the minimum resources guaranteed for the container.
+          cpus: '0.1'
+          memory: 128M
+
+  airflow-webserver: #Uses airflow-common configuration
+    <<: *airflow-common #airflow-common configuration. Overrides the command to start the Airflow webserver. Maps port 8080 to the host.
+    command: webserver  #COMMAND: specifies the command that is executed when a container starts. When I mention that the command "overrides the command," it means that it replaces or modifies the default command specified in the Docker image's Dockerfile.
+    ports:
+      - "8080:8080" #MAPPING <host_port>:<container_port>
+    deploy:
+      resources:
+        limits: #LIMITS: Defines the maximum resources the container can use.
+          cpus: '1'
+          memory: 2G
+        reservations: #RESERVATIONS: Defines the minimum resources guaranteed for the container.
+          cpus: '0.5'
+          memory: 1G
+
+  airflow-scheduler: #Uses airflow-common configuration. Overrides the command to start the Airflow scheduler.
+    <<: *airflow-common
+    command: scheduler
+      #COMMAND: specifies the command that is executed when a container starts. When I mention that the command "overrides the command," it means that it replaces or modifies the default command specified in the Docker image's Dockerfile.
+      #In Docker, the command directive in a Docker Compose file (or the CMD instruction in a Dockerfile)
+    deploy:
+      resources:
+        limits: #LIMITS: Defines the maximum resources the container can use.
+          cpus: '0.25'
+          memory: 256M
+        reservations: #RESERVATIONS: Defines the minimum resources guaranteed for the container.
+          cpus: '0.1'
+          memory: 128M
+
+  airflow-worker: #Uses airflow-common configuration. Overrides the command to start an Airflow Celery worker.
+    <<: *airflow-common
+    command: celery worker #Overrides the command to start an Airflow Celery worker.
+      #COMMAND: specifies the command that is executed when a container starts. When I mention that the command "overrides the command," it means that it replaces or modifies the default command specified in the Docker image's Dockerfile.
+      #In Docker, the command directive in a Docker Compose file (or the CMD instruction in a Dockerfile)
+    deploy:
+      resources:
+        limits: #LIMITS: Defines the maximum resources the container can use.
+          cpus: '0.5'
+          memory: 1G
+        reservations: #RESERVATIONS: Defines the minimum resources guaranteed for the container.
+          cpus: '0.3'
+          memory: 1G
+
+
+#Some directories in the container are mounted, which means that their contents are synchronized between your computer and the container.
+#You can also add the --build flag to your docker compose commands to rebuild the images on-the-fly when you run other docker compose commands.
